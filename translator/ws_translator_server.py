@@ -159,6 +159,7 @@ async def handle_client(ws: websockets.WebSocketServerProtocol, args):
 
                 try:
                     speaking = True
+
                     await ws.send(json.dumps({"type": "stt", "text": text}))
 
                     translated = await translate_text(
@@ -168,37 +169,28 @@ async def handle_client(ws: websockets.WebSocketServerProtocol, args):
                         args.tgt_lang,
                         text
                     )
+
                     await ws.send(json.dumps({"type": "translate", "text": translated}))
 
-                    # TTS (sync callback)
-                    synth = build_wav_synthesizer(args.speech_key, args.speech_region, args.tts_voice)
+                    synth = build_wav_synthesizer(
+                        args.speech_key,
+                        args.speech_region,
+                        args.tts_voice
+                    )
 
-                    done = asyncio.Event()
-                    audio_bytes_holder = {"data": None, "err": None}
+                    loop = asyncio.get_running_loop()
 
-                    def on_success(result: speechsdk.SpeechSynthesisResult):
-                        audio_bytes_holder["data"] = result.audio_data
-                        loop.call_soon_threadsafe(done.set)
+                    wav_bytes = await loop.run_in_executor(
+                        None,
+                        lambda: synth.speak_text_async(translated).get().audio_data
+                    )
 
-                    def on_error(err):
-                        audio_bytes_holder["err"] = str(err)
-                        loop.call_soon_threadsafe(done.set)
-
-                    synth.speak_text_async(translated, on_success, on_error)
-                    await asyncio.wait_for(done.wait(), timeout=15.0)
                     synth.close()
 
-                    if audio_bytes_holder["err"]:
-                        await ws.send(json.dumps({"type": "tts_error", "error": audio_bytes_holder["err"]}))
-                    else:
-                        # WAV completo (RIFF) hacia cliente
-                        await ws.send(audio_bytes_holder["data"])
+                    await ws.send(wav_bytes)
 
                 except Exception as e:
-                    try:
-                        await ws.send(json.dumps({"type": "error", "error": str(e)}))
-                    except Exception:
-                        pass
+                    await ws.send(json.dumps({"type": "error", "error": str(e)}))
                 finally:
                     speaking = False
 
