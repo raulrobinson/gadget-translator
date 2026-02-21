@@ -1,206 +1,241 @@
 import os
+import json
 import asyncio
 import argparse
+import websockets
 import aiohttp
 import azure.cognitiveservices.speech as speechsdk
-import websockets
 
-
-# ===============================
-# CLI ARGUMENTS
-# ===============================
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="WS Translator Server")
+    p = argparse.ArgumentParser("WS Translator Server (enterprise)")
+    p.add_argument("--host", default="0.0.0.0")
+    p.add_argument("--port", type=int, required=True)
 
-    parser.add_argument("--host", default=os.getenv("HOST", "0.0.0.0"))
-    parser.add_argument("--port", type=int, default=int(os.getenv("PORT", 9001)))
+    p.add_argument("--speech-key", required=True)
+    p.add_argument("--speech-region", required=True)
 
-    parser.add_argument("--speech-key", default=os.getenv("SPEECH_KEY"))
-    parser.add_argument("--speech-region", default=os.getenv("SPEECH_REGION"))
+    p.add_argument("--translator-key", required=True)
+    p.add_argument("--translator-region", required=True)
 
-    parser.add_argument("--translator-key", default=os.getenv("TRANSLATOR_KEY"))
-    parser.add_argument("--translator-region", default=os.getenv("TRANSLATOR_REGION"))
+    p.add_argument("--src-locale", required=True)
+    p.add_argument("--tgt-lang", required=True)
+    p.add_argument("--tts-voice", required=True)
 
-    parser.add_argument("--src-locale", default=os.getenv("SRC_LOCALE"))
-    parser.add_argument("--tgt-lang", default=os.getenv("TGT_LANG"))
-    parser.add_argument("--tts-voice", default=os.getenv("TTS_VOICE"))
-
-    parser.add_argument("--sample-rate", type=int, default=int(os.getenv("SAMPLE_RATE", 16000)))
-    parser.add_argument("--channels", type=int, default=int(os.getenv("CHANNELS", 1)))
-
-    parser.add_argument("--name", default=os.getenv("NAME", "CHANNEL"))
-
-    args = parser.parse_args()
-
-    # Validación manual (opcional pero recomendable)
-    required = [
-        args.speech_key,
-        args.speech_region,
-        args.translator_key,
-        args.translator_region,
-        args.src_locale,
-        args.tgt_lang,
-        args.tts_voice
-    ]
-
-    if not all(required):
-        raise RuntimeError("Missing required environment variables")
-
-    return args
+    p.add_argument("--name", default="CHANNEL")
+    p.add_argument("--sample-rate", type=int, default=16000)
+    p.add_argument("--channels", type=int, default=1)
+    return p.parse_args()
 
 
-# ===============================
-# TRANSLATION
-# ===============================
-
-async def translate_text(text, source_lang, target_lang, key, region):
+async def translate_text(session: aiohttp.ClientSession, key: str, region: str, tgt_lang: str, text: str) -> str:
+    url = f"https://api.cognitive.microsofttranslator.com/translate?api-version=3.0&to={tgt_lang}"
     headers = {
         "Ocp-Apim-Subscription-Key": key,
         "Ocp-Apim-Subscription-Region": region,
         "Content-Type": "application/json",
     }
-
-    url = f"https://api.cognitive.microsofttranslator.com/translate?api-version=3.0&from={source_lang}&to={target_lang}"
-    body = [{"Text": text}]
-
-    async with aiohttp.ClientSession() as session:
-        async with session.post(url, headers=headers, json=body) as resp:
-            if resp.status != 200:
-                raise RuntimeError(await resp.text())
-            data = await resp.json()
-            return data[0]["translations"][0]["text"]
+    payload = [{"Text": text}]
+    async with session.post(url, headers=headers, json=payload, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+        data = await resp.json()
+        return data[0]["translations"][0]["text"]
 
 
-# ===============================
-# TTS
-# ===============================
-
-def tts_wav_bytes(text, speech_key, speech_region, voice):
-    speech_config = speechsdk.SpeechConfig(
-        subscription=speech_key,
-        region=speech_region
-    )
-    speech_config.speech_synthesis_voice_name = voice
-    speech_config.set_speech_synthesis_output_format(
+def build_wav_synthesizer(speech_key: str, speech_region: str, tts_voice: str):
+    tts_config = speechsdk.SpeechConfig(subscription=speech_key, region=speech_region)
+    tts_config.speech_synthesis_voice_name = tts_voice
+    # WAV RIFF PCM 16k mono 16-bit (fácil de reproducir)
+    tts_config.set_speech_synthesis_output_format(
         speechsdk.SpeechSynthesisOutputFormat.Riff16Khz16BitMonoPcm
     )
-
-    synth = speechsdk.SpeechSynthesizer(
-        speech_config=speech_config,
-        audio_config=None
-    )
-
-    result = synth.speak_text_async(text).get()
-
-    if result.reason != speechsdk.ResultReason.SynthesizingAudioCompleted:
-        raise RuntimeError("TTS failed")
-
-    return result.audio_data
+    return speechsdk.SpeechSynthesizer(speech_config=tts_config, audio_config=None)
 
 
-# ===============================
-# CLIENT HANDLER
-# ===============================
-
-async def handle_client(ws, args):
-
+async def handle_client(ws: websockets.WebSocketServerProtocol, args):
     loop = asyncio.get_running_loop()
-    text_queue = asyncio.Queue()
 
-    speech_config = speechsdk.SpeechConfig(
-        subscription=args.speech_key,
-        region=args.speech_region
-    )
-    speech_config.speech_recognition_language = args.src_locale
+    # Aviso listo
+    await ws.send(json.dumps({"type": "ready", "channel": args.name}))
 
-    stream_format = speechsdk.audio.AudioStreamFormat(
-        samples_per_second=args.sample_rate,
-        bits_per_sample=16,
-        channels=args.channels,
-    )
+    # Cola de audio crudo (desde cliente hacia Azure)
+    audio_q: asyncio.Queue[bytes] = asyncio.Queue(maxsize=200)  # backpressure
 
-    push_stream = speechsdk.audio.PushAudioInputStream(stream_format)
-    audio_config = speechsdk.audio.AudioConfig(stream=push_stream)
-
-    recognizer = speechsdk.SpeechRecognizer(
-        speech_config=speech_config,
-        audio_config=audio_config
-    )
+    # Cola de textos reconocidos para procesar secuencial
+    text_q: asyncio.Queue[str] = asyncio.Queue(maxsize=50)
 
     speaking = False
+    closed = asyncio.Event()
 
-    def on_recognized(evt):
+    # ---- Azure Speech Recognizer (streaming continuo) ----
+    speech_config = speechsdk.SpeechConfig(subscription=args.speech_key, region=args.speech_region)
+    speech_config.speech_recognition_language = args.src_locale
+
+    stream_format = speechsdk.audio.AudioStreamFormat(samples_per_second=args.sample_rate,
+                                                     bits_per_sample=16,
+                                                     channels=args.channels)
+    push_stream = speechsdk.audio.PushAudioInputStream(stream_format)
+    audio_config = speechsdk.audio.AudioConfig(stream=push_stream)
+    recognizer = speechsdk.SpeechRecognizer(speech_config=speech_config, audio_config=audio_config)
+
+    def on_recognized(evt: speechsdk.SpeechRecognitionEventArgs):
         nonlocal speaking
-        if speaking:
-            return
+        try:
+            res = evt.result
+            if res.reason != speechsdk.ResultReason.RecognizedSpeech:
+                return
+            text = (res.text or "").strip()
+            if not text:
+                return
+            # Evitar re-entradas mientras estamos sintetizando/enviando
+            if speaking:
+                return
+            loop.call_soon_threadsafe(text_q.put_nowait, text)
+        except Exception:
+            # No tumbar el server por un callback
+            pass
 
-        if evt.result.reason == speechsdk.ResultReason.RecognizedSpeech:
-            txt = (evt.result.text or "").strip()
-            if txt:
-                loop.call_soon_threadsafe(text_queue.put_nowait, txt)
+    def on_canceled(evt: speechsdk.SpeechRecognitionCanceledEventArgs):
+        try:
+            loop.call_soon_threadsafe(
+                asyncio.create_task,
+                ws.send(json.dumps({"type": "stt_canceled", "details": str(evt)}))
+            )
+        except Exception:
+            pass
+
+    def on_session_stopped(_evt):
+        # Sesión parada: suele ocurrir por error o desconexión
+        try:
+            loop.call_soon_threadsafe(
+                asyncio.create_task,
+                ws.send(json.dumps({"type": "stt_session_stopped"}))
+            )
+        except Exception:
+            pass
 
     recognizer.recognized.connect(on_recognized)
+    recognizer.canceled.connect(on_canceled)
+    recognizer.session_stopped.connect(on_session_stopped)
+
     recognizer.start_continuous_recognition()
 
-    await ws.send(f'{{"type":"ready","channel":"{args.name}"}}')
+    async def ws_reader():
+        """Lee audio del WS y lo pone en la cola con backpressure."""
+        try:
+            async for msg in ws:
+                if isinstance(msg, str):
+                    # opcional: comandos/control
+                    continue
+                # Backpressure: si se llena, esperamos (no reventar RAM)
+                await audio_q.put(msg)
+        finally:
+            closed.set()
 
-    async def recv_audio():
-        async for msg in ws:
-            if isinstance(msg, (bytes, bytearray)):
-                push_stream.write(bytes(msg))
+    async def audio_writer():
+        """Saca de la cola y escribe al PushStream de Azure."""
+        try:
+            while not closed.is_set():
+                try:
+                    chunk = await asyncio.wait_for(audio_q.get(), timeout=1.0)
+                except asyncio.TimeoutError:
+                    continue
+                # PushStream es sync; esto es rápido (memcpy)
+                push_stream.write(chunk)
+        finally:
+            try:
+                push_stream.close()
+            except Exception:
+                pass
 
-    async def process():
+    async def tts_worker():
+        """Procesa textos uno por uno: translate + TTS + envío WAV."""
         nonlocal speaking
-        while True:
-            txt = await text_queue.get()
+        async with aiohttp.ClientSession() as session:
+            while not closed.is_set():
+                try:
+                    text = await asyncio.wait_for(text_q.get(), timeout=1.0)
+                except asyncio.TimeoutError:
+                    continue
 
-            await ws.send(f'{{"type":"stt","text":{txt!r}}}')
+                try:
+                    speaking = True
+                    await ws.send(json.dumps({"type": "stt", "text": text}))
 
-            translated = await translate_text(
-                txt,
-                args.src_locale.split("-")[0],
-                args.tgt_lang,
-                args.translator_key,
-                args.translator_region
-            )
+                    translated = await translate_text(
+                        session,
+                        args.translator_key,
+                        args.translator_region,
+                        args.tgt_lang,
+                        text
+                    )
+                    await ws.send(json.dumps({"type": "translate", "text": translated}))
 
-            await ws.send(f'{{"type":"translate","text":{translated!r}}}')
+                    # TTS (sync callback)
+                    synth = build_wav_synthesizer(args.speech_key, args.speech_region, args.tts_voice)
 
-            speaking = True
+                    done = asyncio.Event()
+                    audio_bytes_holder = {"data": None, "err": None}
+
+                    def on_success(result: speechsdk.SpeechSynthesisResult):
+                        audio_bytes_holder["data"] = result.audio_data
+                        loop.call_soon_threadsafe(done.set)
+
+                    def on_error(err):
+                        audio_bytes_holder["err"] = str(err)
+                        loop.call_soon_threadsafe(done.set)
+
+                    synth.speak_text_async(translated, on_success, on_error)
+                    await asyncio.wait_for(done.wait(), timeout=15.0)
+                    synth.close()
+
+                    if audio_bytes_holder["err"]:
+                        await ws.send(json.dumps({"type": "tts_error", "error": audio_bytes_holder["err"]}))
+                    else:
+                        # WAV completo (RIFF) hacia cliente
+                        await ws.send(audio_bytes_holder["data"])
+
+                except Exception as e:
+                    try:
+                        await ws.send(json.dumps({"type": "error", "error": str(e)}))
+                    except Exception:
+                        pass
+                finally:
+                    speaking = False
+
+    tasks = [
+        asyncio.create_task(ws_reader()),
+        asyncio.create_task(audio_writer()),
+        asyncio.create_task(tts_worker()),
+    ]
+
+    try:
+        await closed.wait()
+    finally:
+        for t in tasks:
+            t.cancel()
+
+        try:
             recognizer.stop_continuous_recognition()
+        except Exception:
+            pass
 
-            wav = await loop.run_in_executor(
-                None,
-                tts_wav_bytes,
-                translated,
-                args.speech_key,
-                args.speech_region,
-                args.tts_voice
-            )
+        try:
+            recognizer.recognized.disconnect(on_recognized)
+        except Exception:
+            pass
 
-            await ws.send(wav)
-
-            speaking = False
-            recognizer.start_continuous_recognition()
-
-    await asyncio.gather(recv_audio(), process())
-
-
-# ===============================
-# MAIN
-# ===============================
 
 async def main():
     args = parse_args()
-
-    print(f"[{args.name}] Running on ws://{args.host}:{args.port}")
+    print(f"[{args.name}] running on ws://{args.host}:{args.port}")
 
     async with websockets.serve(
         lambda ws: handle_client(ws, args),
         args.host,
         args.port,
-        max_size=None
+        max_size=10_000_000,
+        ping_interval=20,
+        ping_timeout=20,
     ):
         await asyncio.Future()
 

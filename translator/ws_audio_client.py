@@ -1,34 +1,30 @@
-import os
 import asyncio
-import subprocess
-import websockets
-import tempfile
 import argparse
+import subprocess
 import sys
+import websockets
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="WS Audio Client")
+    p = argparse.ArgumentParser("WS Audio Client (enterprise)")
+    p.add_argument("--ws", required=True)
+    p.add_argument("--capture", required=True)
+    p.add_argument("--playback", required=True)
+    p.add_argument("--name", default="CHANNEL")
 
-    parser.add_argument("--ws", required=True, help="WebSocket URL (ej: ws://127.0.0.1:9001)")
-    parser.add_argument("--capture", required=True, help="ALSA capture device (ej: hw:0,0)")
-    parser.add_argument("--playback", required=True, help="ALSA playback device (ej: plughw:0,0)")
-    parser.add_argument("--name", default="CHANNEL", help="Nombre del canal (SPA-ENG, ENG-SPA)")
-
-    parser.add_argument("--rate", type=int, default=16000)
-    parser.add_argument("--channels", type=int, default=1)
-    parser.add_argument("--chunk-ms", type=int, default=20)
-    parser.add_argument("--bytes-per-sample", type=int, default=2)
-
-    return parser.parse_args()
+    p.add_argument("--rate", type=int, default=16000)
+    p.add_argument("--channels", type=int, default=1)
+    p.add_argument("--chunk-ms", type=int, default=20)
+    p.add_argument("--bytes-per-sample", type=int, default=2)
+    return p.parse_args()
 
 
 async def main():
     args = parse_args()
 
-    CHUNK_BYTES = int(args.rate * args.chunk_ms / 1000) * args.channels * args.bytes_per_sample
+    chunk_bytes = int(args.rate * args.chunk_ms / 1000) * args.channels * args.bytes_per_sample
 
-    ARECORD_CMD = [
+    arecord_cmd = [
         "arecord",
         "-D", args.capture,
         "-f", "S16_LE",
@@ -39,42 +35,94 @@ async def main():
         "--period-size=16000",
     ]
 
-    print(f"[{args.name}] Connecting to:", args.ws)
+    play_q: asyncio.Queue[bytes] = asyncio.Queue(maxsize=30)  # backpressure playback
 
-    async with websockets.connect(args.ws, max_size=None) as ws:
+    print(f"[{args.name}] Connecting to: {args.ws}")
+
+    async with websockets.connect(
+        args.ws,
+        max_size=None,
+        ping_interval=20,
+        ping_timeout=20
+    ) as ws:
         print(f"[{args.name}] WS connected")
 
-        arec = subprocess.Popen(ARECORD_CMD, stdout=subprocess.PIPE)
+        arec = subprocess.Popen(arecord_cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
         loop = asyncio.get_running_loop()
+        stopped = asyncio.Event()
 
         async def uplink():
-            while True:
-                data = await loop.run_in_executor(None, arec.stdout.read, CHUNK_BYTES)
-                if not data:
-                    await asyncio.sleep(0.01)
-                    continue
-                await ws.send(data)
+            try:
+                while True:
+                    data = await loop.run_in_executor(None, arec.stdout.read, chunk_bytes)
+                    if not data:
+                        await asyncio.sleep(0.01)
+                        continue
+                    await ws.send(data)
+            except Exception:
+                stopped.set()
 
         async def downlink():
-            async for msg in ws:
+            try:
+                async for msg in ws:
+                    if isinstance(msg, str):
+                        print(f"[{args.name}] SERVER:", msg)
+                        continue
+                    # wav bytes
+                    await play_q.put(msg)
+            except Exception:
+                stopped.set()
 
-                if isinstance(msg, str):
-                    print(f"[{args.name}] SERVER:", msg)
-                    continue
+        async def playback_worker():
+            """Reproduce WAV secuencialmente sin bloquear el event loop."""
+            try:
+                while not stopped.is_set():
+                    try:
+                        wav_bytes = await asyncio.wait_for(play_q.get(), timeout=1.0)
+                    except asyncio.TimeoutError:
+                        continue
 
-                with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as f:
-                    f.write(msg)
-                    wav_path = f.name
+                    # aplay leyendo WAV desde stdin
+                    def _play():
+                        p = subprocess.Popen(
+                            ["aplay", "-D", args.playback, "-t", "wav", "-"],
+                            stdin=subprocess.PIPE,
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL
+                        )
+                        try:
+                            p.stdin.write(wav_bytes)
+                            p.stdin.close()
+                            p.wait(timeout=20)
+                        except Exception:
+                            try:
+                                p.kill()
+                            except Exception:
+                                pass
 
-                subprocess.Popen(
-                    ["aplay", "-D", args.playback, wav_path],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL
-                )
+                    await loop.run_in_executor(None, _play)
+            except asyncio.CancelledError:
+                pass
 
-                os.remove(wav_path)
+        tasks = [
+            asyncio.create_task(uplink()),
+            asyncio.create_task(downlink()),
+            asyncio.create_task(playback_worker()),
+        ]
 
-        await asyncio.gather(uplink(), downlink())
+        try:
+            await stopped.wait()
+        finally:
+            for t in tasks:
+                t.cancel()
+            try:
+                arec.terminate()
+            except Exception:
+                pass
+            try:
+                arec.wait(timeout=2)
+            except Exception:
+                pass
 
 
 if __name__ == "__main__":
