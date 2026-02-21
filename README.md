@@ -40,7 +40,10 @@ services:
   spa_eng:
     image: ws-translator:latest
     container_name: translator_spa_eng
-    network_mode: host
+    ports:
+      - "9001:9001"
+    tty: true
+    stdin_open: true
     restart: unless-stopped
     command: >
       python ws_translator_server.py
@@ -57,8 +60,11 @@ services:
   eng_spa:
     image: ws-translator:latest
     container_name: translator_eng_spa
-    network_mode: host
     restart: unless-stopped
+    ports:
+      - "9002:9002"
+    tty: true
+    stdin_open: true
     command: >
       python ws_translator_server.py
       --port 9002
