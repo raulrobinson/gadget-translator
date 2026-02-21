@@ -29,7 +29,6 @@ services:
   eng_spa:
     build: ./translator
     container_name: translator_eng_spa
-    network_mode: host
     restart: unless-stopped
     tty: true
     stdin_open: true
