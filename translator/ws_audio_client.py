@@ -50,8 +50,10 @@ async def main():
         async def uplink():
             while True:
                 data = await loop.run_in_executor(None, arec.stdout.read, CHUNK_BYTES)
-                if data:
-                    await ws.send(data)
+                if not data:
+                    await asyncio.sleep(0.01)
+                    continue
+                await ws.send(data)
 
         async def downlink():
             async for msg in ws:
@@ -64,7 +66,7 @@ async def main():
                     f.write(msg)
                     wav_path = f.name
 
-                subprocess.run(
+                subprocess.Popen(
                     ["aplay", "-D", args.playback, wav_path],
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL

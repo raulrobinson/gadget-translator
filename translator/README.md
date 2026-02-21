@@ -17,12 +17,18 @@ docker run --rm -it \
   --name spa-eng-client \
   --network host \
   --device /dev/snd \
-  unified-spa_eng \
+  gadget-translator-spa_eng:latest \
   python ws_audio_client.py \
   --ws ws://127.0.0.1:9001 \
   --capture hw:0,0 \
-  --playback plughw:3,0 \
+  --playback plughw:0,0 \
   --name SPA-ENG
+```
+
+``groovy
+docker run --rm -it --name spa-eng-client --network host --device /dev/snd gadge
+t-translator-spa_eng:latest python ws_audio_client.py --ws ws://127.0.0.1:9001 --capture hw:2,0 --playback plughw:2,0 --nam
+e SPA-ENG
 ```
 
 🎧 ENG → SPA
@@ -31,12 +37,18 @@ docker run --rm -it \
   --name eng-spa-client \
   --network host \
   --device /dev/snd \
-  unified-eng_spa \
+  gadget-translator-eng_spa:latest \
   python ws_audio_client.py \
   --ws ws://127.0.0.1:9002 \
   --capture hw:3,0 \
   --playback plughw:0,0 \
   --name ENG-SPA
+```
+
+``groovy
+docker run --rm -it --name eng-spa-client --network host --device /dev/snd gadge
+t-translator-eng_spa:latest python ws_audio_client.py --ws ws://127.0.0.1:9002 --capture hw:2,0 --playback plughw:2,0 --nam
+e ENG-SPA
 ```
 
 ---
