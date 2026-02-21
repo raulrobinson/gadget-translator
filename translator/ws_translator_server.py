@@ -74,7 +74,7 @@ def build_synthesizer(speech_key, speech_region, tts_voice):
 async def handle_client(ws, args):
     loop = asyncio.get_running_loop()
 
-    await ws.send(json.dumps({"type": "ready", "channel": args.name}))
+    await ws.send(json.dumps({"type": "ready", "channel": args.name}, ensure_ascii=False))
 
     audio_q = asyncio.Queue(maxsize=200)
     text_q = asyncio.Queue(maxsize=50)
@@ -175,7 +175,7 @@ async def handle_client(ws, args):
                 try:
                     speaking = True
 
-                    await ws.send(json.dumps({"type": "stt", "text": text}))
+                    await ws.send(json.dumps({"type": "stt", "text": text}, ensure_ascii=False))
 
                     translated = await translate_text(
                         session,
@@ -185,7 +185,7 @@ async def handle_client(ws, args):
                         text
                     )
 
-                    await ws.send(json.dumps({"type": "translate", "text": translated}))
+                    await ws.send(json.dumps({"type": "translate", "text": translated}, ensure_ascii=False))
 
                     # ===== TTS seguro =====
 
@@ -210,7 +210,7 @@ async def handle_client(ws, args):
                     await ws.send(wav_bytes)
 
                 except Exception as e:
-                    await ws.send(json.dumps({"type": "error", "error": str(e)}))
+                    await ws.send(json.dumps({"type": "error", "error": str(e)}, ensure_ascii=False))
 
                 finally:
                     speaking = False
