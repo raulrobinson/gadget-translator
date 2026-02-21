@@ -1,47 +1,15 @@
-# Translator Gadget
-
-#### 🚀 INSTALAR PORTAINER EN RASPBERRY PI 400 (ARM64)
-
-- 🟢 Verificar Docker
-
-```groovy
-docker --version
-
-curl -fsSL https://get.docker.com | sh
-sudo usermod -aG docker pi
-
-docker volume create portainer_data
-
-docker run -d \
-  -p 9000:9000 \
-  -p 9443:9443 \
-  --name portainer \
-  --restart=always \
-  -v /var/run/docker.sock:/var/run/docker.sock \
-  -v portainer_data:/data \
-  portainer/portainer-ce:latest
-  
-http://192.168.1.77:9000
-- admin
-- password
-```
-    
-#### 🚀 Crear imagenes
-
-- Crear imagen del servidor de traducción
-```groovy
-docker build -t ws-translator:latest ./translator
-``` 
-
-- Crear el Stack en Portainer con el siguiente contenido:
-```yaml
 services:
 
+  # =============================================
+  # Servicio de traducción (Spanish <-> English)
+  # =============================================
   spa_eng:
-    image: ws-translator:latest
+    build: ./translator
     container_name: translator_spa_eng
     network_mode: host
     restart: unless-stopped
+    tty: true
+    stdin_open: true
     command: >
       python ws_translator_server.py
       --port 9001
@@ -54,11 +22,16 @@ services:
       --tts-voice en-US-JennyNeural
       --name SPA-ENG
 
+  # =============================================
+  # Servicio de traducción (English <-> Spanish)
+  # =============================================
   eng_spa:
-    image: ws-translator:latest
+    build: ./translator
     container_name: translator_eng_spa
     network_mode: host
     restart: unless-stopped
+    tty: true
+    stdin_open: true
     command: >
       python ws_translator_server.py
       --port 9002
@@ -70,4 +43,3 @@ services:
       --tgt-lang es
       --tts-voice es-ES-ElviraNeural
       --name ENG-SPA
-```
