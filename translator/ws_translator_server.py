@@ -13,8 +13,9 @@ import azure.cognitiveservices.speech as speechsdk
 
 def parse_args():
     p = argparse.ArgumentParser("WS Translator Server (enterprise)")
-    p.add_argument("--host", default=os.getenv("HOST", "0.0.0.0"))
-    p.add_argument("--port", type=int, defautl=os.getenv("PORT"), required=True)
+
+    p.add_argument("--host", default=os.getenv("HOST", "localhost"))
+    p.add_argument("--port", type=int, default=int(os.getenv("PORT")))
 
     p.add_argument("--speech-key", defautl=os.getenv("SPEECH_KEY"), required=True)
     p.add_argument("--speech-region", defautl=os.getenv("SPEECH_REGION"), required=True)
