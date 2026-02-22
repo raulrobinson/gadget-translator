@@ -6,4 +6,4 @@ export SRC_LOCALE="es-ES"
 export TGT_LANG="en"
 export TTS_VOICE="en-US-JennyNeural"
 export NAME="SPA-ENG"
-export PORT="9001|
+export PORT="9001"
