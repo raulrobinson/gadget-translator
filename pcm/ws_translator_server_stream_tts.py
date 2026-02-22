@@ -10,6 +10,7 @@ import azure.cognitiveservices.speech as speechsdk
 def parse_args():
     p = argparse.ArgumentParser("WS Translator Server (TTS streaming)")
 
+    p.add_argument("--host", default=os.getenv("HOST", "localhost"))
     p.add_argument("--name", default=os.getenv("NAME", "CHANNEL"))
     p.add_argument("--port", type=int, default=int(os.getenv("PORT")))
 
