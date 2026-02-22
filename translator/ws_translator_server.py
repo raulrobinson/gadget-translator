@@ -8,28 +8,27 @@ import azure.cognitiveservices.speech as speechsdk
 
 
 # ==========================
-# ARGS
+# ARGUMENTOS
 # ==========================
 
 def parse_args():
     p = argparse.ArgumentParser("WS Translator Server (enterprise)")
+    p.add_argument("--host", default="0.0.0.0")
+    p.add_argument("--port", type=int, required=True)
 
-    p.add_argument("--host", default=os.getenv("HOST", "localhost"))
-    p.add_argument("--port", type=int, default=int(os.getenv("PORT")))
+    p.add_argument("--speech-key", required=True)
+    p.add_argument("--speech-region", required=True)
 
-    p.add_argument("--speech-key", default=os.getenv("SPEECH_KEY"))
-    p.add_argument("--speech-region", default=os.getenv("SPEECH_REGION"))
+    p.add_argument("--translator-key", required=True)
+    p.add_argument("--translator-region", required=True)
 
-    p.add_argument("--translator-key", default=os.getenv("TRANSLATOR_KEY"))
-    p.add_argument("--translator-region", default=os.getenv("TRANSLATOR_REGION"))
+    p.add_argument("--src-locale", required=True)
+    p.add_argument("--tgt-lang", required=True)
+    p.add_argument("--tts-voice", required=True)
 
-    p.add_argument("--src-locale", default=os.getenv("SRC_LOCALE"))
-    p.add_argument("--tgt-lang", default=os.getenv("TGT_LANG"))
-    p.add_argument("--tts-voice", default=os.getenv("TTS_VOICE"))
-
-    #p.add_argument("--name", defautl=os.getenv("NAME"))
-    p.add_argument("--sample-rate", type=int, default=os.getenv("RATE", 16000))
-    p.add_argument("--channels", type=int, default=os.getenv("CHANNELS", 1))
+    p.add_argument("--name", default="CHANNEL")
+    p.add_argument("--sample-rate", type=int, default=16000)
+    p.add_argument("--channels", type=int, default=1)
     return p.parse_args()
 
 
