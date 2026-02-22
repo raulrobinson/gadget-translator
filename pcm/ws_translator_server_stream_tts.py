@@ -84,7 +84,7 @@ def build_streaming_synth(loop, q, speech_key, speech_region, tts_voice):
     return synth
 
 
-async def handle_client(ws: websockets.WebSocketServerProtocol, args):
+async def handle_client(ws, args):
     loop = asyncio.get_running_loop()
 
     # --- Señal listo ---
