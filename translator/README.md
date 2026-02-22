@@ -25,11 +25,7 @@ docker run --rm -it \
   --name SPA-ENG
 ```
 
-``groovy
-docker run --rm -it --name spa-eng-client --network host --device /dev/snd gadge
-t-translator-spa_eng:latest python ws_audio_client.py --ws ws://127.0.0.1:9001 --capture hw:2,0 --playback plughw:2,0 --nam
-e SPA-ENG
-```
+
 
 🎧 ENG → SPA
 ```groovy
@@ -43,12 +39,6 @@ docker run --rm -it \
   --capture hw:3,0 \
   --playback plughw:0,0 \
   --name ENG-SPA
-```
-
-``groovy
-docker run --rm -it --name eng-spa-client --network host --device /dev/snd gadge
-t-translator-eng_spa:latest python ws_audio_client.py --ws ws://127.0.0.1:9002 --capture hw:2,0 --playback plughw:2,0 --nam
-e ENG-SPA
 ```
 
 ---
@@ -75,4 +65,12 @@ docker run --rm -it \
   --rate 16000 \
   --channels 1 \
   --name SPA-ENG
+```
+
+---
+
+```groovy
+docker run --rm -it --name spa-eng-client --network host --device /dev/snd gadget-translator-spa_eng:latest python ws_audio_client.py --ws ws://127.0.0.1:9001 --capture plughw:2,0 --playback plughw:3,0 --name SPA-ENG
+
+docker run --rm -it --name eng-spa-client --network host --device /dev/snd gadget-translator-eng_spa:latest python ws_audio_client.py --ws ws://127.0.0.1:9002 --capture plughw:3,0 --playback plughw:2,0 --name ENG-SPA
 ```
