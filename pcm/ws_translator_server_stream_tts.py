@@ -91,7 +91,7 @@ async def handle_client(ws, args):
     await ws.send(json.dumps({"type": "ready", "channel": args.name}, ensure_ascii=False))
 
     # --- Colas ---
-    audio_q: asyncio.Queue[bytes] = asyncio.Queue(maxsize=300)   # audio crudo hacia STT
+    audio_q: asyncio.Queue[bytes] = asyncio.Queue(maxsize=50)   # audio crudo hacia STT
     text_q: asyncio.Queue[str] = asyncio.Queue(maxsize=50)       # frases finales
     closed = asyncio.Event()
 
@@ -100,6 +100,10 @@ async def handle_client(ws, args):
     # --- Azure STT (streaming entrada) ---
     speech_cfg = speechsdk.SpeechConfig(subscription=args.speech_key, region=args.speech_region)
     speech_cfg.speech_recognition_language = args.src_locale
+    speech_cfg.set_property(
+        speechsdk.PropertyId.Speech_SegmentationSilenceTimeoutMs,
+        "800"
+    )
 
     fmt = speechsdk.audio.AudioStreamFormat(samples_per_second=args.sample_rate, bits_per_sample=16, channels=args.channels)
     push_in = speechsdk.audio.PushAudioInputStream(fmt)
@@ -120,8 +124,26 @@ async def handle_client(ws, args):
         except Exception:
             pass
 
-    recognizer.recognized.connect(on_recognized)
+    recognizer.recognizing.connect(on_recognized)
     recognizer.start_continuous_recognition()
+
+    def on_canceled(evt):
+        print("STT canceled:", evt)
+        loop.call_soon_threadsafe(restart_recognizer)
+
+    def on_session_stopped(evt):
+        print("STT session stopped")
+        loop.call_soon_threadsafe(restart_recognizer)
+
+    def restart_recognizer():
+        try:
+            recognizer.stop_continuous_recognition()
+        except:
+            pass
+        recognizer.start_continuous_recognition()
+
+    recognizer.canceled.connect(on_canceled)
+    recognizer.session_stopped.connect(on_session_stopped)
 
     async def ws_reader():
         try:
