@@ -27,7 +27,7 @@ def parse_args():
     p.add_argument("--tgt-lang", default=os.getenv("TGT_LANG"))
     p.add_argument("--tts-voice", default=os.getenv("TTS_VOICE"))
 
-    p.add_argument("--name", defautl=os.getenv("NAME"))
+    #p.add_argument("--name", defautl=os.getenv("NAME"))
     p.add_argument("--sample-rate", type=int, default=os.getenv("RATE", 16000))
     p.add_argument("--channels", type=int, default=os.getenv("CHANNELS", 1))
     return p.parse_args()
