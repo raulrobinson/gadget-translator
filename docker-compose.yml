@@ -45,3 +45,49 @@ services:
       --tgt-lang es
       --tts-voice es-ES-ElviraNeural
       --name ENG-SPA
+
+  # =======================================================
+  # Servicio de traducción (Spanish <-> Frances Canadiense)
+  # =======================================================
+  spa_fra:
+    build: ./translator
+    container_name: translator_spa_fra
+    restart: unless-stopped
+    tty: true
+    stdin_open: true
+    ports:
+      - "9003:9003"
+    command: >
+      python ws_translator_server.py
+      --port 9003
+      --speech-key 5ae052154f2b4437a2bd13e2a8b1e1fc
+      --speech-region eastus
+      --translator-key eadeeea0de1b4f718ac400db2023d4ad
+      --translator-region eastus
+      --src-locale es-ES
+      --tgt-lang fr
+      --tts-voice fr-CA-SylvainNeural
+      --name SPA-FRA
+
+  # =======================================================
+  # Servicio de traducción (Frances Canadiense <-> Spanish)
+  # =======================================================
+  fra_spa:
+    build: ./translator
+    container_name: translator_fra_spa
+    restart: unless-stopped
+    tty: true
+    stdin_open: true
+    ports:
+      - "9004:9004"
+    command: >
+      python ws_translator_server.py
+      --port 9004
+      --speech-key 5ae052154f2b4437a2bd13e2a8b1e1fc
+      --speech-region eastus
+      --translator-key eadeeea0de1b4f718ac400db2023d4ad
+      --translator-region eastus
+      --src-locale fr-CA
+      --tgt-lang es
+      --tts-voice es-ES-ElviraNeural
+      --name FRA-SPA
