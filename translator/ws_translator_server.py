@@ -8,7 +8,7 @@ import azure.cognitiveservices.speech as speechsdk
 
 
 # ==========================
-# ARGUMENTOS
+# ARGS
 # ==========================
 
 def parse_args():

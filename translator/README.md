@@ -74,3 +74,9 @@ docker run --rm -it --name spa-eng-client --network host --device /dev/snd gadge
 
 docker run --rm -it --name eng-spa-client --network host --device /dev/snd gadget-translator-eng_spa:latest python ws_audio_client.py --ws ws://127.0.0.1:9002 --capture plughw:3,0 --playback plughw:2,0 --name ENG-SPA
 ```
+
+```groovy
+docker run --rm -it --name spa-fra-client --network host --device /dev/snd gadget-translator-spa_fra:latest python ws_audio_client.py --ws ws://127.0.0.1:9003 --capture plughw:2,0 --playback plughw:3,0 --name SPA-FRA
+
+docker run --rm -it --name fra-spa-client --network host --device /dev/snd gadget-translator-fra_spa:latest python ws_audio_client.py --ws ws://127.0.0.1:9004 --capture plughw:3,0 --playback plughw:2,0 --name FRA-SPA
+```
