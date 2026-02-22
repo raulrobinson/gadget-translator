@@ -315,7 +315,7 @@ if __name__ == "__main__":
     if AZURE_SPEECH_KEY == "5ae052154f2b4437a2bd13e2a8b1e1fc":
         print("\n❌ ERROR: Configura tu API key de Azure Speech")
         print("Edita el archivo y reemplaza '5ae052154f2b4437a2bd13e2a8b1e1fc'")
-        exit(1)
+        #exit(1)
 
     # Verificar dependencias
     try:
